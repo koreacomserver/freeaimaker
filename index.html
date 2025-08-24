@@ -1,1 +1,970 @@
-<!DOCTYPE html> <html lang="ko" data-theme="light"> <head> <meta charset="UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" /> <title>Navigation Core V3 (한국어)</title> <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /> <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" /> <style> /* Base Styles */ :root { --bg:#fff; --fg:#111827; --muted:#6b7280; --brand:#16a34a; --card:#fff; --border:#e5e7eb; --shadow: rgba(0,0,0,.08); } [data-theme="dark"] { --bg:#0b1220; --fg:#e5e7eb; --muted:#9ca3af; --brand:#22c55e; --card:#111827; --border:#1f2937; --shadow: rgba(0,0,0,.2); } * { box-sizing:border-box; } html, body { height:100%; width:100%; margin:0; overflow:hidden; background:var(--bg); color:var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans KR, Arial; } #map { height: 100%; width: 100%; z-index: 1; } /* UI Elements */ .card { background:var(--card); border:1px solid var(--border); border-radius:14px; box-shadow:0 8px 24px var(--shadow); } .btn { border:1px solid var(--border); background:var(--brand); color:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; white-space: nowrap; font-size: 14px; } .btn.secondary { background:transparent; color:var(--fg); } .btn.secondary.active { background: var(--brand); color: #fff; } .btn i { margin-right: 6px; } /* Top Bar */ .topbar { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:1000; width:min(1200px, 96vw); } .topbar .row { display:flex; flex-wrap: wrap; gap:8px; padding:10px; align-items:center; } .input-group { flex: 1; display: flex; gap: 6px; min-width: 200px; position: relative; } .input-group input { width:100%; border:1px solid var(--border); background:transparent; color:var(--fg); padding:10px 12px; border-radius:10px; outline:none; } .status-text { color:var(--muted); font-size:13px; margin-left: auto; } .search-results { position:absolute; top: calc(100% + 5px); left:0; right:0; max-height:300px; overflow-y:auto; z-index:1001; } .search-item { padding:8px 14px; cursor:pointer; border-bottom:1px solid var(--border); } .search-item:last-child { border-bottom:none; } .search-item:hover { background:var(--brand); color:#fff; } /* Navigation Info Panel */ #nav-info { position: absolute; top: 150px; left: 50%; transform: translateX(-50%); z-index: 1000; background: var(--card); padding: 12px 20px; border-radius: 16px; display: none; align-items: center; gap: 16px; min-width: 320px; box-shadow: 0 8px 24px var(--shadow); border: 2px solid transparent; transition: border-color 0.3s; } #nav-info.camera-alert { border-color: #ef4444; } #nav-info .turn-icon { font-size: 40px; color: var(--brand); } #nav-info.camera-alert .turn-icon { color: #ef4444; } #nav-info .details { display: flex; flex-direction: column; } #nav-info .distance { font-size: 24px; font-weight: bold; } #nav-info .instruction { font-size: 18px; font-weight: 500;} #nav-info .next-turn { font-size: 14px; color: var(--muted); margin-top: 4px; } /* Right Controls */ .right-controls { position: absolute; top: 150px; right: 10px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; } /* Bottom Info & Speedometer */ .bottom-info { position:absolute; bottom:52px; left:50%; transform:translateX(-50%); z-index:1000; display: flex; gap: 10px; align-items: center; } .pill { padding:8px 16px; border-radius:999px; font-weight: 500; } #speedometer { font-size: 24px; font-weight: bold; text-align: center; } #speedometer span { font-size: 12px; color: var(--muted); display: block; } /* Bottom Panel */ #bottom-panel { position:absolute; bottom:0; left:0; right:0; z-index:1010; background:var(--card); border-top:1px solid var(--border); transform: translateY(calc(100% - 40px)); transition: transform 0.4s ease-in-out; } #bottom-panel.open { transform: translateY(0); } #panel-handle { height:40px; display:flex; justify-content:center; align-items:center; cursor:pointer; } #panel-handle span { transition: transform 0.3s; display:inline-block; font-size: 20px; } #panel-content { height: calc(min(40vh, 400px) - 40px); padding: 10px; overflow-y: auto; display: none; flex-direction: column; gap: 10px; } #bottom-panel.open #panel-content { display: flex; } /* Draggable YouTube Player */ #youtube-container { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(480px, 90vw); height: min(320px, 50vh); z-index: 2000; display: none; resize: both; overflow: hidden; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); } #youtube-header { padding: 8px; cursor: move; background-color: #222; color: white; display: flex; justify-content: space-between; align-items: center; height: 40px; } #youtube-close { cursor: pointer; padding: 4px 8px; font-size: 16px; } #youtube-player { width: 100%; height: calc(100% - 40px); border: none; } </style> </head> <body> <!-- Map Container --> <div id="map"></div> <!-- Top Navigation Info Panel --> <div id="nav-info" class="card"> <i id="nav-icon" class="turn-icon fa-solid fa-arrow-up"></i> <div class="details"> <span id="nav-distance" class="distance"></span> <span id="nav-instruction" class="instruction"></span> <span id="nav-next" class="next-turn"></span> </div> </div> <!-- Top Bar for Search and Main Actions --> <div class="topbar card"> <div class="row"> <div class="input-group"> <input id="from" placeholder="현위치 찾는 중..." /> <input id="to" placeholder="도착지 (예: 강남역)" /> <div class="search-results card" id="results" style="display:none;"></div> </div> <button class="btn" id="go"><i class="fa-solid fa-diamond-turn-right"></i>길찾기</button> <span class="status-text" id="status">준비</span> </div> <div class="row" style="padding-top: 0;"> <button class="btn secondary active" id="mode-driving"><i class="fa-solid fa-car"></i>자동차</button> <button class="btn secondary" id="mode-bicyle"><i class="fa-solid fa-bicycle"></i>자전거</button> <button class="btn secondary" id="mode-walking"><i class="fa-solid fa-person-walking"></i>도보</button> <button class="btn secondary" id="find-gas"><i class="fa-solid fa-gas-pump"></i>주유소</button> <button class="btn secondary" id="find-food"><i class="fa-solid fa-utensils"></i>맛집</button> <button class="btn secondary" id="clear-poi"><i class="fa-solid fa-xmark"></i>장소 지우기</button> </div> </div> <!-- Right Side Controls --> <div class="right-controls"> <button class="btn secondary" id="pan"><i class="fa-solid fa-location-crosshairs"></i></button> <button class="btn secondary" id="tts"><i class="fa-solid fa-volume-high"></i></button> <button class="btn secondary" id="theme"><i class="fa-solid fa-circle-half-stroke"></i></button> </div> <!-- Bottom Info Display --> <div class="bottom-info"> <div class="card pill" id="speedometer">0<span>km/h</span></div> <div class="info card pill" id="eta" style="display:none;">예상시간</div> </div> <!-- Expandable Bottom Panel for Media --> <div id="bottom-panel"> <div id="panel-handle"><span>▲</span></div> <div id="panel-content"> <div class="media-controls"> <button class="btn secondary" id="play-music"> <i class="fa-brands fa-soundcloud"></i> 음악 </button> <button class="btn secondary" id="play-video"> <i class="fa-brands fa-youtube"></i> 영상 </button> <button class="btn secondary" id="ai-assistant"> <i class="fa-solid fa-robot"></i> 인공지능 </button> </div> </div> </div> <!-- Draggable YouTube Player --> <div id="youtube-container"> <div id="youtube-header"> <span>YouTube</span> <span id="youtube-close">✖</span> </div> <iframe id="youtube-player" allow="autoplay; encrypted-media"></iframe> </div> <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script> <script> const $ = (id) => document.getElementById(id); // --- 상태 관리 --- const state = { routeLayer: null, poiLayer: null, markers: [], steps: [], speedCameras: [ // 데모용 가상 과속 단속 카메라 { lat: 37.5600, lon: 126.9750, limit: 60 }, { lat: 37.5700, lon: 126.9800, limit: 50 } ], currentStepIdx: 0, watchId: null, userMarker: null, autoPan: true, isInitialLocationSet: false, fromCoords: null, toCoords: null, travelMode: 'driving', isRerouting: false, }; // --- 지도 초기화 --- const map = L.map('map', { zoomControl: false }).setView([37.5665, 126.9780], 13); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map); // --- 유틸리티 함수 --- const km = (m) => (m / 1000).toFixed(1); const min = (s) => Math.round(s / 60); const setStatus = (msg) => { $('status').textContent = msg; }; // --- 핵심 API 함수 (이전과 동일) --- async function geocode(q, multiple = false) { const url = new URL('https://nominatim.openstreetmap.org/search'); url.searchParams.set('q', q); url.searchParams.set('format', 'jsonv2'); url.searchParams.set('limit', multiple ? '5' : '1'); url.searchParams.set('addressdetails', '1'); url.searchParams.set('accept-language', 'ko'); const res = await fetch(url, { headers: { 'User-Agent': 'vanilla-nav-core' } }); if (!res.ok) throw new Error(지오코딩 실패: ${res.statusText}); const data = await res.json(); if (!data.length) throw new Error('검색 결과 없음: ' + q); return data; } async function reverseGeocode(lat, lon) { const url = new URL('https://nominatim.openstreetmap.org/reverse'); url.searchParams.set('lat', lat); url.searchParams.set('lon', lon); url.searchParams.set('format', 'jsonv2'); url.searchParams.set('accept-language', 'ko'); const res = await fetch(url, { headers: { 'User-Agent': 'vanilla-nav-core' } }); if (!res.ok) throw new Error(리버스 지오코딩 실패: ${res.statusText}); const data = await res.json(); if (data.error) throw new Error(data.error); return data.display_name; } async function osrm(from, to, mode = 'driving') { const profile = mode === 'walking' ? 'foot' : (mode === 'bicyle' ? 'bicycle' : 'driving'); const url = https://router.project-osrm.org/route/v1/${profile}/${from.lon},${from.lat};${to.lon},${to.lat}?overview=full&geometries=geojson&steps=true; const res = await fetch(url); if (!res.ok) throw new Error('경로 요청 실패'); const j = await res.json(); if (!j.routes?.length) throw new Error('경로를 찾을 수 없음'); return j.routes[0]; } async function findNearby(lat, lon, amenity) { const bbox = [lat - 0.05, lon - 0.05, lat + 0.05, lon + 0.05].join(','); const query = [out:json];node["amenity"="${amenity}"](${bbox});out;; const url = https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}; const res = await fetch(url); if (!res.ok) throw new Error('Overpass API 요청 실패'); const data = await res.json(); return data.elements; } // --- 지도 및 UI 그리기 함수 --- function addMarker(lat, lon, label) { const m = L.marker([lat, lon]).addTo(map).bindPopup(label || ''); state.markers.push(m); return m; } function clearMarkers() { state.markers.forEach(m => map.removeLayer(m)); state.markers = []; } function clearPoiMarkers() { if (state.poiLayer) { map.removeLayer(state.poiLayer); state.poiLayer = null; setStatus('장소 정보 삭제됨'); } } function drawPois(pois) { clearPoiMarkers(); const markers = []; pois.forEach(poi => { const name = poi.tags.name || '이름 없음'; const marker = L.marker([poi.lat, poi.lon]).bindPopup(name); markers.push(marker); }); state.poiLayer = L.layerGroup(markers).addTo(map); setStatus(${pois.length}개의 장소 발견); } function drawRoute(route) { if (state.routeLayer) map.removeLayer(state.routeLayer); const coords = route.geometry.coordinates.map(([x, y]) => [y, x]); state.routeLayer = L.polyline(coords, { color: '#2563eb', weight: 6, opacity: .9 }).addTo(map); map.fitBounds(state.routeLayer.getBounds(), { padding: [180, 80] }); const steps = route.legs?.[0]?.steps || []; state.steps = steps.map(s => ({ name: s.name, distance: s.distance, duration: s.duration, instruction: s.maneuver?.instruction || s.name || '직진', location: s.maneuver?.location ? { lon: s.maneuver.location[0], lat: s.maneuver.location[1] } : null, maneuver: s.maneuver, preannounced: false })); state.currentStepIdx = 0; $('nav-info').style.display = 'flex'; $('eta').style.display = 'block'; $('eta').textContent = 예상: ${min(route.duration)}분 · ${km(route.distance)}km; setStatus('경로 표시됨'); if (state.steps.length) { speak(경로 안내를 시작합니다. 총 ${min(route.duration)}분, ${km(route.distance)}킬로미터 입니다.); } } // --- 내비게이션 및 위치 로직 --- async function calculateRoute() { try { setStatus(state.isRerouting ? '경로 재탐색 중...' : '경로 계산 중...'); clearMarkers(); const fromQuery = $('from').value.trim(); let from; if (state.fromCoords) { from = state.fromCoords; } else if (fromQuery) { from = (await geocode(fromQuery))[0]; } else { speak("출발지를 확인할 수 없습니다."); return; } const toQuery = $('to').value.trim(); if (!toQuery) { speak('도착지를 입력해주세요.'); return; } const to = (await geocode(toQuery))[0]; state.toCoords = { lat: to.lat, lon: to.lon }; addMarker(from.lat, from.lon, '출발'); addMarker(to.lat, to.lon, '도착'); const routeData = await osrm(from, to, state.travelMode); drawRoute(routeData); startWatch(); state.isRerouting = false; } catch (e) { console.error(e); speak('경로를 찾을 수 없습니다. 입력을 확인해주세요.'); setStatus('실패'); $('nav-info').style.display = 'none'; state.isRerouting = false; } } function startWatch() { if (!navigator.geolocation) return; if (state.watchId) navigator.geolocation.clearWatch(state.watchId); state.watchId = navigator.geolocation.watchPosition(onPositionUpdate, () => { setStatus('위치를 사용할 수 없습니다.'); }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 8000 }); } function haversine(lat1, lon1, lat2, lon2) { const R = 6371e3; const φ1 = lat1 * Math.PI / 180; const φ2 = lat2 * Math.PI / 180; const Δφ = (lat2 - lat1) * Math.PI / 180; const Δλ = (lon2 - lon1) * Math.PI / 180; const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2); const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); return R * c; } function isOffRoute(userLat, userLon, routeLayer) { if (!routeLayer || !L.GeometryUtil) return false; const latlngs = routeLayer.getLatLngs(); const userLatLng = L.latLng(userLat, userLon); const closestPoint = L.GeometryUtil.closest(map, latlngs, userLatLng); return closestPoint.distance > 75; } function getTurnIcon(maneuver) { if (!maneuver) return 'fa-arrow-up'; const { type, modifier } = maneuver; if (type.includes('roundabout')) return 'fa-arrows-rotate'; if (type.includes('rotary')) return 'fa-arrows-spin'; if (modifier?.includes('straight')) return 'fa-arrow-up'; if (modifier?.includes('slight right')) return 'fa-arrow-trend-up'; if (modifier?.includes('right')) return 'fa-arrow-right'; if (modifier?.includes('sharp right')) return 'fa-angles-right'; if (modifier?.includes('slight left')) return 'fa-arrow-trend-down fa-flip-horizontal'; if (modifier?.includes('left')) return 'fa-arrow-left'; if (modifier?.includes('sharp left')) return 'fa-angles-left'; if (modifier?.includes('uturn')) return 'fa-rotate-left'; return 'fa-arrow-up'; } function updateNavInfo(step, distance, nextStep) { const navInfo = $('nav-info'); navInfo.classList.remove('camera-alert'); $('nav-icon').className = turn-icon fa-solid ${getTurnIcon(step.maneuver)}; $('nav-distance').textContent = distance > 1000 ? ${(distance/1000).toFixed(1)}km : ${Math.round(distance)}m; $('nav-instruction').textContent = step.instruction; $('nav-next').textContent = nextStep ? 다음: ${nextStep.instruction} : '목적지 근처'; } function updateCameraAlert(camera, distance) { const navInfo = $('nav-info'); navInfo.classList.add('camera-alert'); $('nav-icon').className = turn-icon fa-solid fa-camera; $('nav-distance').textContent = ${Math.round(distance)}m; $('nav-instruction').textContent = 과속 단속; $('nav-next').textContent = 제한 속도: ${camera.limit}km/h; } async function onPositionUpdate(pos) { const { latitude, longitude, speed } = pos.coords; state.fromCoords = { lat: latitude, lon: longitude }; const speedKmh = speed ? Math.round(speed * 3.6) : 0; $('speedometer').firstChild.textContent = speedKmh; if (!state.isInitialLocationSet) { state.isInitialLocationSet = true; try { $('from').value = await reverseGeocode(latitude, longitude); } catch (e) { console.error(e); $('from').placeholder = '출발지를 입력하세요'; } } if (!state.userMarker) { state.userMarker = L.circleMarker([latitude, longitude], { radius: 8, color: '#1d4ed8', fillColor: '#3b82f6', fillOpacity: 0.9, weight: 2 }).addTo(map).bindPopup('현위치'); } else { state.userMarker.setLatLng([latitude, longitude]); } if (state.autoPan) { map.setView([latitude, longitude], Math.max(map.getZoom(), 16), { animate: true, duration: 0.5 }); } if (!state.steps.length || state.currentStepIdx >= state.steps.length) { $('nav-info').style.display = 'none'; return; } if (isOffRoute(latitude, longitude, state.routeLayer) && !state.isRerouting) { state.isRerouting = true; speak("경로를 이탈했습니다. 다시 계산합니다."); calculateRoute(); return; } const step = state.steps[state.currentStepIdx]; const nextStep = state.steps[state.currentStepIdx + 1]; const target = step?.location; if (!target) return; const distanceToNextTurn = haversine(latitude, longitude, target.lat, target.lon); // 카메라 확인 우선 let cameraAlertShown = false; for (const camera of state.speedCameras) { const distanceToCamera = haversine(latitude, longitude, camera.lat, camera.lon); if (distanceToCamera < 1000) { // 1km 이내 updateCameraAlert(camera, distanceToCamera); cameraAlertShown = true; break; } } if (!cameraAlertShown) { updateNavInfo(step, distanceToNextTurn, nextStep); } if (distanceToNextTurn < 150 && !step.preannounced) { const rounded = Math.round(distanceToNextTurn / 10) * 10; if (rounded > 35) { speak(잠시 후 ${rounded}미터 앞에서 ${step.instruction}.); step.preannounced = true; } } if (distanceToNextTurn < 35) { speak(step?.instruction || '다음 안내'); state.currentStepIdx = Math.min(state.currentStepIdx + 1, state.steps.length - 1); if (nextStep) { setStatus(다음: ${nextStep.instruction}); } else { setStatus('목적지 근처'); speak('목적지에 도착했습니다.'); state.steps = []; $('nav-info').style.display = 'none'; } } } // --- 이벤트 리스너 --- $('go').onclick = calculateRoute; const modeTranslations = { driving: '자동차', bicyle: '자전거', walking: '도보' }; Object.keys(modeTranslations).forEach(mode => { $(mode-${mode}).onclick = () => { state.travelMode = mode; document.querySelectorAll('.topbar .row .btn.secondary').forEach(b => b.classList.remove('active')); $(mode-${mode}).classList.add('active'); setStatus(${modeTranslations[mode]} 모드 설정); if(state.routeLayer) calculateRoute(); }; }); const poiTranslations = { fuel: '주유소', restaurant: '맛집' }; const findAndShowPois = async (amenity) => { if (!state.fromCoords) { speak("주변 장소를 찾기 위해 현재 위치를 확인할 수 없습니다."); return; } const amenity_ko = poiTranslations[amenity] || amenity; setStatus(주변 ${amenity_ko} 검색 중...); try { const pois = await findNearby(state.fromCoords.lat, state.fromCoords.lon, amenity); if (pois.length > 0) { drawPois(pois); } else { speak(주변에 ${amenity_ko}을(를) 찾을 수 없습니다.); setStatus(주변 ${amenity_ko} 없음); } } catch (e) { console.error(e); speak(주변 ${amenity_ko} 검색에 실패했습니다.); } }; $('find-gas').onclick = () => findAndShowPois('fuel'); $('find-food').onclick = () => findAndShowPois('restaurant'); $('clear-poi').onclick = clearPoiMarkers; $('pan').onclick = () => { state.autoPan = !state.autoPan; $('pan').classList.toggle('active', state.autoPan); if (state.autoPan && state.userMarker) { map.setView(state.userMarker.getLatLng(), Math.max(map.getZoom(), 16), { animate: true }); } }; $('pan').classList.add('active'); const speak = (text) => { try { const u = new SpeechSynthesisUtterance(text); u.lang = 'ko-KR'; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) { console.warn('TTS 미지원'); } }; $('tts').onclick = () => speak('음성 안내 테스트입니다.'); $('theme').onclick = () => { const root = document.documentElement; const isDark = root.getAttribute('data-theme') === 'dark'; root.setAttribute('data-theme', isDark ? 'light' : 'dark'); }; $('panel-handle').onclick = () => { const p = $('bottom-panel'); p.classList.toggle('open'); p.querySelector('span').style.transform = p.classList.contains('open') ? 'rotate(180deg)' : 'rotate(0deg)'; }; $('ai-assistant').onclick = () => { speak("인공지능 비서 기능은 개발 중입니다."); setStatus("인공지능 비서 준비 안됨"); }; $('play-music').onclick = () => speak("음악 기능은 준비 중입니다."); // --- Draggable YouTube Player Logic --- const youtubeContainer = $('youtube-container'); const youtubeHeader = $('youtube-header'); const youtubePlayer = $('youtube-player'); let isDragging = false; let offsetX, offsetY; youtubeHeader.addEventListener('mousedown', (e) => { isDragging = true; offsetX = e.clientX - youtubeContainer.offsetLeft; offsetY = e.clientY - youtubeContainer.offsetTop; youtubeContainer.style.cursor = 'grabbing'; }); document.addEventListener('mousemove', (e) => { if (!isDragging) return; youtubeContainer.style.left = ${e.clientX - offsetX}px; youtubeContainer.style.top = ${e.clientY - offsetY}px; }); document.addEventListener('mouseup', () => { isDragging = false; youtubeContainer.style.cursor = 'default'; }); $('play-video').onclick = () => { youtubeContainer.style.display = 'block'; youtubePlayer.src = "https://www.youtube.com"; }; $('youtube-close').onclick = () => { youtubeContainer.style.display = 'none'; youtubePlayer.src = ""; // Stop video playback }; // --- 초기화 --- startWatch(); </script> </body> </html>
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>실시간 GPS 내비게이션</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <style>
+    /* General Styles */
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden; /* Prevent scrollbars */
+    }
+
+    /* Theming */
+    :root[data-theme='light'] {
+      --bg: #f0f2f5;
+      --text: #1c1e21;
+      --card: #ffffff;
+      --primary: #1877f2;
+      --primary-hover: #166fe5;
+      --secondary-bg: #e4e6eb;
+      --secondary-text: #050505;
+      --border-color: #ced0d4;
+      --danger-bg: #fbe3e5;
+      --danger-text: #dc3545;
+      --danger-border: #f5c6cb;
+    }
+    :root[data-theme='dark'] {
+      --bg: #18191a;
+      --text: #e4e6eb;
+      --card: #242526;
+      --primary: #2d88ff;
+      --primary-hover: #3a8ffd;
+      --secondary-bg: #3a3b3c;
+      --secondary-text: #e4e6eb;
+      --border-color: #3e4042;
+      --danger-bg: #4d2a2d;
+      --danger-text: #ff8a80;
+      --danger-border: #8d4a4a;
+    }
+
+    /* Map */
+    #map {
+      height: 100%;
+      width: 100%;
+      z-index: 1;
+    }
+
+    /* UI Components */
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      padding: 12px;
+      border: 1px solid var(--border-color);
+    }
+
+    .btn {
+      background: var(--primary);
+      border: none;
+      color: white;
+      border-radius: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-weight: 600;
+      transition: background-color 0.2s ease, box-shadow 0.2s ease;
+      flex-shrink: 0; /* Prevent buttons from shrinking */
+    }
+    .btn:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn.secondary {
+      background: var(--secondary-bg);
+      color: var(--secondary-text);
+    }
+    .btn.secondary:hover {
+      filter: brightness(0.95);
+    }
+    .btn.active, .btn.listening {
+      box-shadow: 0 0 0 2px var(--primary);
+      background-color: #f02849;
+      color: white;
+    }
+
+    /* Layout */
+    .topbar {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: clamp(300px, 95%, 600px);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .input-group {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      position: relative; /* For search results positioning */
+    }
+    input {
+      padding: 8px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    #destination-results {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: var(--card);
+        border: 1px solid var(--border-color);
+        border-top: none;
+        border-radius: 0 0 8px 8px;
+        z-index: 1001;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    #destination-results div {
+        padding: 10px;
+        cursor: pointer;
+        border-bottom: 1px solid var(--border-color);
+    }
+    #destination-results div:last-child {
+        border-bottom: none;
+    }
+    #destination-results div:hover {
+        background: var(--secondary-bg);
+    }
+
+
+    #status {
+      font-size: 14px;
+      align-self: center;
+      padding: 0 10px;
+      white-space: nowrap;
+    }
+
+    .right-controls {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 1000;
+    }
+
+    .bottom-info {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none; /* Initially hidden */
+      gap: 10px;
+      z-index: 1000;
+    }
+
+    .pill {
+      border-radius: 50px;
+      padding: 8px 18px;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    
+    #speedometer {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: bold;
+      z-index: 1000;
+      padding: 0;
+      border: 3px solid var(--primary);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      background: var(--card);
+    }
+    #speedometer span {
+      font-size: 14px;
+      font-weight: normal;
+      margin-left: 0;
+      margin-top: 2px;
+      opacity: 0.8;
+    }
+
+
+    #nav-info {
+      position: absolute;
+      top: 130px; /* Adjusted position */
+      left: 50%;
+      transform: translateX(-50%);
+      display: none; /* Initially hidden */
+      align-items: center;
+      gap: 15px;
+      z-index: 1000;
+      width: clamp(300px, 90%, 500px);
+    }
+    .turn-icon { font-size: 32px; color: var(--primary); }
+    #nav-info .details { display: flex; flex-direction: column; flex-grow: 1; }
+    #nav-instruction { font-size: 18px; font-weight: bold; }
+    #nav-distance { font-size: 14px; opacity: 0.9; }
+    #cancel-route { margin-top: 8px; padding: 6px; }
+    
+    /* Speed Camera Alert */
+    #camera-alert {
+        display: none;
+        position: absolute;
+        top: 200px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1001;
+        background-color: var(--danger-bg);
+        color: var(--danger-text);
+        border: 2px solid var(--danger-border);
+        border-radius: 12px;
+        padding: 15px;
+        font-size: 16px;
+        font-weight: bold;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        animation: fadeInOut 4s ease-in-out;
+    }
+    #camera-alert i {
+        margin-right: 10px;
+    }
+    @keyframes fadeInOut {
+        0%, 100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+        10%, 90% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
+    /* YouTube Player & Search */
+    #youtube-container {
+      display: none;
+      position: absolute;
+      bottom: 50px;
+      right: 10px;
+      width: 320px;
+      height: 240px;
+      background: var(--card);
+      border-radius: 12px;
+      overflow: hidden;
+      z-index: 2000;
+      resize: both;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    }
+    #youtube-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--primary);
+      color: white;
+      padding: 8px;
+      cursor: move;
+      font-weight: bold;
+    }
+    #youtube-close { cursor: pointer; padding: 0 5px; }
+    #youtube-player { width: 100%; height: calc(100% - 36px); border: none; }
+
+    #youtube-search {
+      display: none;
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      width: 320px;
+      background: var(--card);
+      border-radius: 12px;
+      z-index: 2001;
+      padding: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    #yt-query { flex-grow: 1; } /* Allow input to take available space */
+    #youtube-results { max-height: 200px; overflow-y: auto; margin-top: 10px; }
+    #youtube-results div {
+      padding: 8px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border-color);
+      transition: background-color 0.2s;
+    }
+    #youtube-results div:last-child { border-bottom: none; }
+    #youtube-results div:hover { background: var(--secondary-bg); }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Route Information Panel -->
+  <div id="nav-info" class="card">
+    <i id="nav-icon" class="turn-icon fa-solid fa-arrow-up"></i>
+    <div class="details">
+      <span id="nav-instruction">경로 안내를 시작합니다...</span>
+      <span id="nav-distance">계산 중...</span>
+    </div>
+    <button class="btn secondary" id="cancel-route">경로 취소</button>
+  </div>
+
+  <!-- Top Bar -->
+  <div class="topbar card">
+    <div class="row">
+      <div class="input-group">
+        <input id="from" placeholder="출발지 (자동 현재위치)" />
+        <input id="to" placeholder="도착지 (예: 강남역)" />
+        <div id="destination-results"></div>
+      </div>
+      <button class="btn secondary" id="dest-voice-btn" title="음성으로 목적지 검색"><i class="fa-solid fa-microphone"></i></button>
+      <button class="btn" id="go"><i class="fa-solid fa-diamond-turn-right"></i></button>
+    </div>
+    <div class="row">
+      <button class="btn secondary active" id="mode-driving"><i class="fa-solid fa-car"></i> 자동차</button>
+      <button class="btn secondary" id="mode-bicycle"><i class="fa-solid fa-bicycle"></i> 자전거</button>
+      <button class="btn secondary" id="mode-walking"><i class="fa-solid fa-person-walking"></i> 도보</button>
+      <span id="status">준비</span>
+    </div>
+  </div>
+
+  <!-- Right Controls -->
+  <div class="right-controls">
+    <button class="btn secondary" id="pan" title="현재 위치로"><i class="fa-solid fa-location-crosshairs"></i></button>
+    <button class="btn secondary" id="tts" title="음성 안내 켜기/끄기"><i class="fa-solid fa-volume-high"></i></button>
+    <button class="btn secondary" id="theme" title="테마 변경"><i class="fa-solid fa-circle-half-stroke"></i></button>
+    <button class="btn secondary" id="youtube-btn" title="유튜브 열기"><i class="fa-brands fa-youtube"></i></button>
+  </div>
+
+  <!-- ETA Info -->
+  <div class="bottom-info">
+    <div class="card pill" id="eta">도착 예정</div>
+  </div>
+
+  <!-- Speedometer -->
+  <div class="card" id="speedometer">0<span>km/h</span></div>
+  
+  <!-- Camera Alert -->
+  <div id="camera-alert" class="card">
+      <i class="fa-solid fa-video"></i>
+      <span id="camera-alert-text"></span>
+  </div>
+
+  <!-- YouTube Search -->
+  <div id="youtube-search" class="card">
+    <div class="row">
+        <input type="text" id="yt-query" placeholder="유튜브 검색..." />
+        <button id="yt-voice-btn" class="btn secondary" title="음성 검색"><i class="fa-solid fa-microphone"></i></button>
+        <button id="yt-search-btn" class="btn">검색</button>
+    </div>
+    <div id="youtube-results"></div>
+  </div>
+
+  <!-- YouTube Player -->
+  <div id="youtube-container">
+    <div id="youtube-header">
+      <span>유튜브</span>
+      <span id="youtube-close">✖</span>
+    </div>
+    <iframe id="youtube-player" allow="autoplay; encrypted-media"></iframe>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-geometryutil"></script>
+  <script>
+    // --- DOM Element References ---
+    const mapElement = document.getElementById('map');
+    const fromInput = document.getElementById('from');
+    const toInput = document.getElementById('to');
+    const statusEl = document.getElementById('status');
+    const etaEl = document.getElementById('eta');
+    const speedometerEl = document.getElementById('speedometer');
+    const navInfoEl = document.getElementById('nav-info');
+    const navInstructionEl = document.getElementById('nav-instruction');
+    const navDistanceEl = document.getElementById('nav-distance');
+    const bottomInfoEl = document.getElementById('bottom-info');
+    const ytContainer = document.getElementById('youtube-container');
+    const ytPlayer = document.getElementById('youtube-player');
+    const ytSearchDiv = document.getElementById('youtube-search');
+    const ytQueryInput = document.getElementById('yt-query');
+    const ytVoiceBtn = document.getElementById('yt-voice-btn');
+    const destVoiceBtn = document.getElementById('dest-voice-btn');
+    const destinationResultsEl = document.getElementById('destination-results');
+    const cameraAlertEl = document.getElementById('camera-alert');
+    const cameraAlertTextEl = document.getElementById('camera-alert-text');
+
+    // --- State Variables ---
+    let map;
+    let routeLayer, cameraLayer;
+    let ttsEnabled = false;
+    let userMarker;
+    let autoPan = true;
+    let autoPanTimeout;
+    let originalStatusText = '준비';
+    let currentRoute = null;
+    let camerasOnRoute = [];
+    let currentStepIndex = 0;
+    
+    // --- Map Initialization ---
+    function initializeMap() {
+        map = L.map(mapElement).setView([37.5665, 126.9780], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        map.on('movestart', () => {
+            autoPan = false;
+            clearTimeout(autoPanTimeout);
+        });
+        map.on('moveend', () => {
+            autoPanTimeout = setTimeout(() => { autoPan = true; }, 5000);
+        });
+    }
+
+    // --- Geolocation ---
+    function setupGeolocation() {
+        if (!navigator.geolocation) {
+            updateStatus('사용 중인 브라우저에서 위치 정보를 지원하지 않습니다', true);
+            return;
+        }
+        // Use watchPosition for continuous updates
+        navigator.geolocation.watchPosition(updatePosition, handleLocationError, {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 0
+        });
+    }
+
+    function updatePosition(pos) {
+        const { latitude, longitude, speed } = pos.coords;
+        const latLng = L.latLng(latitude, longitude);
+
+        // Update Speedometer with real speed
+        const speedKmh = speed ? Math.round(speed * 3.6) : 0;
+        speedometerEl.innerHTML = `${speedKmh}<span>km/h</span>`;
+
+        // Update User Marker
+        if (userMarker) {
+            userMarker.setLatLng(latLng);
+        } else {
+            userMarker = L.marker(latLng, {
+                icon: L.divIcon({
+                    className: 'user-location-dot',
+                    html: '<div style="background-color: #1877f2; width: 20px; height: 20px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 2px #1877f2;"></div>',
+                    iconSize: [26, 26],
+                    iconAnchor: [13, 13]
+                })
+            }).addTo(map);
+            fromInput.value = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+        }
+
+        if (autoPan) {
+            map.panTo(latLng);
+        }
+
+        // If navigating, update route progress
+        if (currentRoute) {
+            updateRouteProgress(latLng, speedKmh);
+        }
+    }
+
+    function handleLocationError(error) {
+        let message = '위치 정보를 가져오는 중 오류 발생: ';
+        switch(error.code) {
+            case error.PERMISSION_DENIED: message += "사용자가 위치 정보 요청을 거부했습니다."; break;
+            case error.POSITION_UNAVAILABLE: message += "위치 정보를 사용할 수 없습니다."; break;
+            case error.TIMEOUT: message += "위치 정보를 가져오는 데 시간이 초과되었습니다."; break;
+            case error.UNKNOWN_ERROR: message += "알 수 없는 오류가 발생했습니다."; break;
+        }
+        updateStatus(message, true);
+    }
+    
+    // --- API Calls & Data Loading ---
+    async function geocode(place) {
+        if (place.includes(',')) {
+            const parts = place.split(',');
+            return [parseFloat(parts[0]), parseFloat(parts[1])];
+        }
+        updateStatus('위치 변환 중...');
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(place)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data && data.length > 0) return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+        throw new Error('위치를 찾을 수 없습니다');
+    }
+
+    async function getRoute(from, to, mode = "driving") {
+        const profile = mode === 'driving' ? 'car' : mode;
+        const url = `https://router.project-osrm.org/route/v1/${profile}/${from[1]},${from[0]};${to[1]},${to[0]}?overview=full&geometries=geojson&steps=true`;
+        updateStatus('경로 탐색 중...');
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.routes && data.routes.length > 0) return data.routes[0];
+        throw new Error('경로를 찾을 수 없습니다');
+    }
+
+    async function loadCameraData() {
+        const cameraDataUrl = 'cameras.json'; 
+        try {
+            updateStatus('카메라 정보 로딩 중...');
+            const response = await fetch(cameraDataUrl);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            const cameras = data.records.map(item => ({
+                lat: parseFloat(item.위도),
+                lon: parseFloat(item.경도),
+                limit: parseInt(item.제한속도, 10) || 50
+            })).filter(cam => cam.lat && cam.lon);
+            console.log(`${cameras.length}개의 카메라 정보를 JSON 파일에서 불러왔습니다.`);
+            updateStatus('카메라 정보 로딩 완료');
+            return cameras;
+        } catch (error) {
+            console.error(`${cameraDataUrl} 파일을 불러오는 데 실패했습니다:`, error);
+            updateStatus("카메라 정보 파일 로딩 실패", true);
+            return [];
+        }
+    }
+
+    // --- UI & Event Handlers ---
+    function setupEventListeners() {
+        document.getElementById('go').addEventListener('click', handleGoClick);
+        document.getElementById('cancel-route').addEventListener('click', cancelRoute);
+        document.getElementById('pan').addEventListener('click', () => {
+            if (userMarker) {
+                autoPan = true;
+                map.setView(userMarker.getLatLng(), 16);
+            }
+        });
+        document.getElementById('tts').addEventListener('click', toggleTTS);
+        document.getElementById('theme').addEventListener('click', toggleTheme);
+        document.getElementById('youtube-btn').addEventListener('click', () => {
+            ytSearchDiv.style.display = ytSearchDiv.style.display === 'none' ? 'block' : 'none';
+        });
+        document.getElementById('youtube-close').addEventListener('click', () => {
+            ytContainer.style.display = 'none';
+            ytPlayer.src = '';
+        });
+        document.getElementById('yt-search-btn').addEventListener('click', handleYoutubeSearch);
+        ytVoiceBtn.addEventListener('click', handleYoutubeVoiceSearch);
+        destVoiceBtn.addEventListener('click', handleDestinationVoiceSearch);
+        
+        document.querySelectorAll('#mode-driving, #mode-bicycle, #mode-walking').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('#mode-driving, #mode-bicycle, #mode-walking').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+        
+        makeDraggable(ytContainer, document.getElementById('youtube-header'));
+
+        document.addEventListener('click', (e) => {
+            if (!destinationResultsEl.contains(e.target) && e.target !== toInput) {
+                destinationResultsEl.style.display = 'none';
+            }
+        });
+    }
+
+    async function handleGoClick() {
+        const fromPlace = fromInput.value;
+        const toPlace = toInput.value;
+        if (!toPlace) {
+            updateStatus('도착지를 입력해주세요', true);
+            return;
+        }
+
+        try {
+            const from = await geocode(fromPlace);
+            const to = await geocode(toPlace);
+            const mode = document.querySelector('.btn.secondary.active').id.replace('mode-', '');
+            const route = await getRoute(from, to, mode);
+            const cameraData = await loadCameraData();
+            displayRoute(route, cameraData);
+        } catch (e) {
+            updateStatus(`오류: ${e.message}`, true);
+        }
+    }
+    
+    function displayRoute(route, cameraData) {
+        if (routeLayer) map.removeLayer(routeLayer);
+        if (cameraLayer) map.removeLayer(cameraLayer);
+
+        routeLayer = L.geoJSON(route.geometry, {
+            style: { color: 'var(--primary)', weight: 6, opacity: 0.8 }
+        }).addTo(map);
+
+        map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+        
+        const distanceKm = (route.distance / 1000).toFixed(1);
+        const durationMin = (route.duration / 60).toFixed(0);
+        
+        const statusText = `거리: ${distanceKm}km, 예상: ${durationMin}분`;
+        updateStatus(statusText);
+        originalStatusText = statusText;
+        
+        navInfoEl.style.display = 'flex';
+        bottomInfoEl.style.display = 'flex';
+        
+        const ttsText = `경로가 설정되었습니다. 총 ${distanceKm} 킬로미터, 예상 소요 시간은 ${durationMin} 분입니다.`;
+        speak(ttsText);
+
+        currentRoute = route;
+        currentStepIndex = 0;
+        checkCamerasOnRoute(cameraData, route);
+        updateNavInstruction(true); // Initial instruction
+    }
+
+    function cancelRoute() {
+        if (routeLayer) map.removeLayer(routeLayer);
+        if (cameraLayer) map.removeLayer(cameraLayer);
+        routeLayer = null;
+        cameraLayer = null;
+        currentRoute = null;
+        
+        updateStatus('경로가 취소되었습니다');
+        originalStatusText = '준비';
+        navInfoEl.style.display = 'none';
+        bottomInfoEl.style.display = 'none';
+        speedometerEl.innerHTML = `0<span>km/h</span>`;
+    }
+
+    // --- Real-Time Navigation Logic ---
+    function updateRouteProgress(currentLatLng, currentSpeedKmh) {
+        if (!currentRoute || !routeLayer) return;
+
+        const routeLine = routeLayer.getLayers()[0].getLatLngs();
+        const closestPointInfo = L.GeometryUtil.closest(map, routeLine, currentLatLng, true);
+        const remainingLine = routeLine.slice(closestPointInfo.predecessor);
+        remainingLine.unshift(currentLatLng);
+        
+        let remainingDistance = 0;
+        for (let i = 0; i < remainingLine.length - 1; i++) {
+            remainingDistance += remainingLine[i].distanceTo(remainingLine[i + 1]);
+        }
+
+        const avgSpeedMps = currentSpeedKmh > 10 ? (currentSpeedKmh / 3.6) : (50 / 3.6); // Use avg speed if slow/stopped
+        const remainingDuration = remainingDistance / avgSpeedMps;
+        etaEl.textContent = `${Math.round(remainingDuration / 60)} 분`;
+        
+        // Update turn-by-turn instruction
+        const totalSteps = currentRoute.legs[0].steps.length;
+        let traveledDistance = currentRoute.distance - remainingDistance;
+        let cumulativeDistance = 0;
+        let newStepIndex = 0;
+
+        for (let i = 0; i < totalSteps; i++) {
+            cumulativeDistance += currentRoute.legs[0].steps[i].distance;
+            if (traveledDistance < cumulativeDistance) {
+                newStepIndex = i;
+                break;
+            }
+        }
+        
+        if (newStepIndex !== currentStepIndex) {
+            currentStepIndex = newStepIndex;
+            updateNavInstruction(true);
+        } else {
+            const distanceToNextTurn = cumulativeDistance - traveledDistance;
+            navDistanceEl.textContent = `${distanceToNextTurn.toFixed(0)}m 남음`;
+        }
+
+        // Check for nearby cameras
+        camerasOnRoute.forEach(cam => {
+            if (!cam.alerted) {
+                const distToCam = currentLatLng.distanceTo(L.latLng(cam.lat, cam.lon));
+                if (distToCam < 500) {
+                    cam.alerted = true;
+                    triggerCameraAlert(cam.limit);
+                }
+            }
+        });
+
+        // Check for arrival
+        if (remainingDistance < 50) { // 50m 이내 도착
+            navInstructionEl.textContent = "목적지에 도착했습니다.";
+            navDistanceEl.textContent = "도착 완료";
+            speak("목적지에 도착했습니다.");
+            cancelRoute();
+        }
+    }
+
+    function checkCamerasOnRoute(allCameras, route) {
+        camerasOnRoute = [];
+        const routeLine = L.polyline(L.GeoJSON.coordsToLatLngs(route.geometry.coordinates));
+
+        allCameras.forEach(camera => {
+            const cameraPoint = L.latLng(camera.lat, camera.lon);
+            const closestPoint = L.GeometryUtil.closest(map, routeLine, cameraPoint);
+            if (closestPoint && closestPoint.distance < 200) {
+                camerasOnRoute.push({ ...camera, alerted: false });
+            }
+        });
+
+        const cameraIcon = L.divIcon({
+            html: '<i class="fa-solid fa-video" style="font-size: 24px; color: #dc3545;"></i>',
+            className: '',
+            iconSize: [24, 24],
+        });
+
+        const markers = camerasOnRoute.map(cam => L.marker([cam.lat, cam.lon], { icon: cameraIcon }));
+        if (markers.length > 0) {
+            cameraLayer = L.layerGroup(markers).addTo(map);
+        }
+    }
+    
+    function triggerCameraAlert(limit) {
+        const alertText = `잠시 후 시속 ${limit}km 과속 단속 구간입니다.`;
+        cameraAlertTextEl.textContent = alertText;
+        cameraAlertEl.style.display = 'block';
+        cameraAlertEl.style.animation = 'none';
+        cameraAlertEl.offsetHeight; 
+        cameraAlertEl.style.animation = 'fadeInOut 4s ease-in-out';
+        speak(alertText);
+    }
+    
+    function updateNavInstruction(forceSpeak = false) {
+        if (!currentRoute || currentStepIndex >= currentRoute.legs[0].steps.length) return;
+        
+        const step = currentRoute.legs[0].steps[currentStepIndex];
+        navInstructionEl.textContent = step.maneuver.instruction;
+        if (forceSpeak) {
+            speak(step.maneuver.instruction);
+        }
+    }
+
+    function toggleTTS() {
+        ttsEnabled = !ttsEnabled;
+        const ttsButton = document.getElementById('tts');
+        if (ttsEnabled) {
+            ttsButton.classList.add('active');
+            updateStatus('음성 안내 켜짐');
+            speak('음성 안내가 켜졌습니다.');
+        } else {
+            ttsButton.classList.remove('active');
+            updateStatus('음성 안내 꺼짐');
+        }
+        setTimeout(() => updateStatus(originalStatusText), 2000);
+    }
+
+    function toggleTheme() {
+        document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    }
+
+    // --- Utility Functions ---
+    function updateStatus(text, isError = false) {
+        statusEl.textContent = text;
+        statusEl.style.color = isError ? '#f02849' : 'var(--text)';
+    }
+
+    function speak(text) {
+        if (!ttsEnabled || !window.speechSynthesis) return;
+        speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = "ko-KR";
+        speechSynthesis.speak(utter);
+    }
+
+    function makeDraggable(element, handle) {
+        let isDragging = false, offsetX, offsetY;
+        handle.addEventListener('mousedown', e => {
+            isDragging = true;
+            offsetX = e.clientX - element.offsetLeft;
+            offsetY = e.clientY - element.offsetTop;
+            document.body.style.userSelect = 'none';
+        });
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            document.body.style.userSelect = '';
+        });
+        document.addEventListener('mousemove', e => {
+            if (isDragging) {
+                element.style.left = (e.clientX - offsetX) + 'px';
+                element.style.top = (e.clientY - offsetY) + 'px';
+            }
+        });
+    }
+
+    // --- Voice Search ---
+    function handleDestinationVoiceSearch() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            updateStatus('음성 검색을 지원하지 않는 브라우저입니다.', true);
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ko-KR';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.start();
+
+        destVoiceBtn.classList.add('listening');
+        toInput.value = '';
+        toInput.placeholder = '듣고 있어요...';
+
+        recognition.onresult = async (event) => {
+            const speechResult = event.results[0][0].transcript;
+            toInput.value = speechResult;
+            try {
+                const results = await searchDestinations(speechResult);
+                displayDestinationResults(results);
+            } catch (error) {
+                updateStatus(`검색 실패: ${error.message}`, true);
+            }
+        };
+
+        recognition.onspeechend = () => {
+            recognition.stop();
+            destVoiceBtn.classList.remove('listening');
+            toInput.placeholder = '도착지 (예: 강남역)';
+        };
+
+        recognition.onerror = (event) => {
+            updateStatus(`음성 검색 오류: ${event.error}`, true);
+            destVoiceBtn.classList.remove('listening');
+            toInput.placeholder = '도착지 (예: 강남역)';
+        };
+    }
+
+    async function searchDestinations(query) {
+        updateStatus(`"${query}" 검색 중...`);
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data && data.length > 0) {
+            return data;
+        }
+        throw new Error('위치를 찾을 수 없습니다');
+    }
+
+    function displayDestinationResults(results) {
+        destinationResultsEl.innerHTML = '';
+        if (results.length === 0) {
+            destinationResultsEl.style.display = 'none';
+            return;
+        }
+
+        results.slice(0, 5).forEach(result => {
+            const div = document.createElement('div');
+            div.textContent = result.display_name;
+            div.addEventListener('click', () => {
+                toInput.value = result.display_name;
+                destinationResultsEl.style.display = 'none';
+                toInput.focus();
+            });
+            destinationResultsEl.appendChild(div);
+        });
+
+        destinationResultsEl.style.display = 'block';
+    }
+
+    function handleYoutubeVoiceSearch() {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            updateStatus('음성 검색을 지원하지 않는 브라우저입니다.', true);
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ko-KR';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.start();
+
+        ytVoiceBtn.classList.add('listening');
+        ytQueryInput.placeholder = '듣고 있어요...';
+
+        recognition.onresult = (event) => {
+            const speechResult = event.results[0][0].transcript;
+            ytQueryInput.value = speechResult;
+            handleYoutubeSearch();
+        };
+
+        recognition.onspeechend = () => {
+            recognition.stop();
+            ytVoiceBtn.classList.remove('listening');
+            ytQueryInput.placeholder = '유튜브 검색...';
+        };
+
+        recognition.onerror = (event) => {
+            updateStatus(`음성 검색 오류: ${event.error}`, true);
+            ytVoiceBtn.classList.remove('listening');
+            ytQueryInput.placeholder = '유튜브 검색...';
+        };
+    }
+
+    async function handleYoutubeSearch() {
+        const query = ytQueryInput.value;
+        const apiKey = 'AIzaSyDC_gIyacIJQ4-RCFW3GIjSeZVcxM5X2Cw';
+
+        if (!query) return;
+        
+        const resultsDiv = document.getElementById('youtube-results');
+        resultsDiv.innerHTML = '검색 중...';
+        
+        const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5&q=${encodeURIComponent(query)}&key=${apiKey}`;
+
+        try {
+            const res = await fetch(url);
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.error.message || 'API request failed');
+            }
+            const data = await res.json();
+            
+            resultsDiv.innerHTML = '';
+            if (data.items && data.items.length > 0) {
+                data.items.forEach(item => {
+                    const div = document.createElement('div');
+                    div.textContent = item.snippet.title;
+                    div.addEventListener('click', () => {
+                        ytContainer.style.display = 'block';
+                        ytPlayer.src = `https://www.youtube.com/embed/${item.id.videoId}?autoplay=1`;
+                        ytSearchDiv.style.display = 'none';
+                        resultsDiv.innerHTML = '';
+                        ytQueryInput.value = '';
+                    });
+                    resultsDiv.appendChild(div);
+                });
+            } else {
+                resultsDiv.innerHTML = '검색 결과가 없습니다';
+            }
+        } catch (error) {
+            resultsDiv.innerHTML = `오류: ${error.message}`;
+            console.error('YouTube API Error:', error);
+        }
+    }
+    
+    // --- App Entry Point ---
+    document.addEventListener('DOMContentLoaded', () => {
+        initializeMap();
+        setupGeolocation();
+        setupEventListeners();
+    });
+
+  </script>
+</body>
+</html>
+이 코드에서 유튜브 버튼 밑에 SoundCloud 버튼을 추가해서 유튜브 버튼과 같은 원리로 api 없이 작동하게 할수있어?
